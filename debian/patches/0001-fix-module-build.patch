@@ -1,0 +1,99 @@
+Description: Fix setuptools to always build C module
+ Because of the deprecation of distutils, the optional build of the C module is
+ currently failing. Rather than switch from distutils to setuptools'
+ equivalents, we can simply disable the optional nature of the module build,
+ since we know that we'll always be building under Cython, not PyPi or Jython.
+ .
+ I've marked this patch as not to be submitted upstream, since the upstream may
+ want to preserve the support for PyPi/Jython and other non-C implementations.
+Author: Harlan Lieberman-Berg <hlieberman@debian.org>
+Forwarded: not-needed
+Bug-Debian: https://bugs.debian.org/1022503
+Index: zope.i18nmessageid/setup.py
+===================================================================
+--- zope.i18nmessageid.orig/setup.py
++++ zope.i18nmessageid/setup.py
+@@ -23,35 +23,20 @@ from __future__ import print_function
+ import os
+ import sys
+ 
+-from distutils.command.build_ext import build_ext
+-from distutils.errors import CCompilerError
+-from distutils.errors import DistutilsExecError
+-from distutils.errors import DistutilsPlatformError
+ import platform
+ 
+ from setuptools import setup, find_packages, Extension
+-
+-py_impl = getattr(platform, 'python_implementation', lambda: None)
+-is_pypy = py_impl() == 'PyPy'
+-is_jython = 'java' in sys.platform
++from setuptools.command import build_ext
+ 
+ codeoptimization_c = os.path.join('src', 'zope', 'i18nmessageid',
+                                   "_zope_i18nmessageid_message.c")
+-codeoptimization = [
++ext_modules = [
+     Extension(
+         "zope.i18nmessageid._zope_i18nmessageid_message",
+         [os.path.normcase(codeoptimization_c)]
+     ),
+ ]
+ 
+-ext_modules = []
+-if not is_pypy and not is_jython:
+-    # Jython cannot build the C optimizations, while on PyPy they are
+-    # anti-optimizations (the C extension compatibility layer is known-slow,
+-    # and defeats JIT opportunities).
+-    ext_modules = codeoptimization
+-
+-
+ tests_require = [
+     'zope.testrunner',
+     'coverage',
+@@ -61,37 +46,6 @@ def read(*rnames):
+     with open(os.path.join(os.path.dirname(__file__), *rnames)) as stream:
+         return stream.read()
+ 
+-
+-class optional_build_ext(build_ext):
+-    """This class subclasses build_ext and allows
+-       the building of C extensions to fail.
+-    """
+-    def run(self):
+-        try:
+-            build_ext.run(self)
+-        except DistutilsPlatformError as e:
+-            self._unavailable(e)
+-
+-    def build_extension(self, ext):
+-        try:
+-            build_ext.build_extension(self, ext)
+-        except (CCompilerError, DistutilsExecError) as e:
+-            self._unavailable(e)
+-
+-    def _unavailable(self, e):
+-        print('*' * 80, file=sys.stderr)
+-        print("""WARNING:
+-
+-        An optional code optimization (C extension) could not be compiled.
+-
+-        Optimizations for this package will not be available!
+-
+-        """, file=sys.stderr)
+-        print(str(e), file=sys.stderr)
+-        print('*' * 80, file=sys.stderr)
+-
+-
+-
+ setup(
+     name='zope.i18nmessageid',
+     version='5.0.1',
+@@ -133,7 +87,6 @@ setup(
+     include_package_data=True,
+     test_suite='zope.i18nmessageid.tests.test_suite',
+     zip_safe=False,
+-    cmdclass={'build_ext': optional_build_ext},
+     ext_modules=ext_modules,
+     tests_require=tests_require,
+     extras_require={
